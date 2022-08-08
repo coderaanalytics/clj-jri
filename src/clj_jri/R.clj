@@ -1,4 +1,6 @@
-(ns clj-jri.R)
+(ns clj-jri.R
+  (:refer-clojure :exclude [eval])
+  (:require [clojure.string]))
 
 ;This is a simple Clojure wrapper for JRI, Java-to-R bridge.
 ;refer to https://github.com/s-u/rJava
@@ -28,7 +30,6 @@
     (println "loading JRI"))
   (try
     (import '[org.rosuda.JRI Rengine REXP RMainLoopCallbacks])
-    ; with REXP, ^REXP (.eval R "sqrt(36)")
     (catch Exception ex (throw (Exception. (str "Failed loading org.rosuda.JRI.Rengine: " (.getMessage ex)))))))
 
 ; REngine is a singleton. Note this code may not be suitable for multi-threaded codes.
@@ -66,51 +67,120 @@
 (defn get-version []
   (org.rosuda.JRI.Rengine/getVersion))
 
-(defn convert [^org.rosuda.JRI.REXP v & [options]]
-  (when v
-    (let [conversion (get options :conversion true)
-          raw (= conversion :raw)
-          to-vec (= conversion :vec)
-          to-matrix (= conversion :matrix)
-          to-single (= conversion :single)]
-      (if (get options :conversion true)
-        (let [t (.getType v)] ; 'case' macro does not work.
-          (cond
-           (= t org.rosuda.JRI.REXP/XT_NULL) nil,
-           (= t org.rosuda.JRI.REXP/XT_NONE) nil,
-           (= t org.rosuda.JRI.REXP/XT_INT) (.asInt v),
-           (= t org.rosuda.JRI.REXP/XT_DOUBLE) (.asDouble v),
-           (= t org.rosuda.JRI.REXP/XT_STR) (.asString v),
-           (= t org.rosuda.JRI.REXP/XT_LANG) (.asList v),
-           (= t org.rosuda.JRI.REXP/XT_SYM) (.asSymbolName v),
-           (= t org.rosuda.JRI.REXP/XT_BOOL) (.asBool v),
-           (= t org.rosuda.JRI.REXP/XT_VECTOR) (.asVector v),
-           (= t org.rosuda.JRI.REXP/XT_LIST) (.asList v)
-           (= t org.rosuda.JRI.REXP/XT_FACTOR) (.asFactor v)
-           ;(= t org.rosuda.JRI.REXP/XT_ARRAY_BOOL) (vec (.asBoolArray v)),
-           ;org.rosuda.JRI.REXP/XT_CLOS) nil,
-           ;org.rosuda.JRI.REXP/XT_ARRAY_BOOL_UA nil,
-           ;org.rosuda.JRI.REXP/XT_ARRAY_BOOL_INT nil,
-           ;org.rosuda.JRI.REXP/XT_UNKNOWN nil,
-           ;
-           (or (= t org.rosuda.JRI.REXP/XT_ARRAY_INT)
-               (= t org.rosuda.JRI.REXP/XT_ARRAY_DOUBLE))
-           (cond raw (.asDoubleArray v)
-                 to-single (.asDouble v)
-                 to-matrix (vec (.asDoubleMatrix v))
-                 :else (vec (.asDoubleArray v)))
-           ;
-           (= t org.rosuda.JRI.REXP/XT_ARRAY_STR)
-           (cond raw (.asStringArray v)
-                 to-single (.asString v)
-                 :else (vec (.asStringArray v)))
-           :else v))
-        v))))
+(defmulti r->clj (fn [v & _]
+                    (let [jri-type (type v)]
+                      (if (instance? org.rosuda.JRI.REXP v)
+                        (.getType v)
+                        jri-type))))
+
+(defmethod r->clj :default
+  [v & _]
+  v)
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_NULL
+  [^org.rosuda.JRI.REXP _ & _]
+  nil)
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_NONE
+  [^org.rosuda.JRI.REXP _ & _]
+  nil)
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_INT
+  [^org.rosuda.JRI.REXP v & _]
+  (.asInt v))
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_DOUBLE
+  [^org.rosuda.JRI.REXP v & _]
+  (.asDouble v))
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_STR
+  [^org.rosuda.JRI.REXP v & _]
+  (.asString v))
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_LANG
+  [^org.rosuda.JRI.REXP v & _]
+  (.asList v))
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_SYM
+  [^org.rosuda.JRI.REXP v & _]
+  (.asSymbolName v))
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_BOOL
+  [^org.rosuda.JRI.REXP v & [options]]
+  (r->clj (.asBool v) options))
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_VECTOR
+  [^org.rosuda.JRI.REXP v & [options]]
+  (r->clj (.asVector v) options))
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_LIST
+  [^org.rosuda.JRI.REXP v & [options]]
+  (r->clj (.asList v) options))
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_FACTOR
+  [^org.rosuda.JRI.REXP v & [options]]
+  (r->clj (.asFactor v) options))
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_ARRAY_DOUBLE
+  [^org.rosuda.JRI.REXP v & [{conversion :conversion}]]
+  (cond (= conversion :raw) (.asDoubleArray v)
+        (= conversion :single) (.asDouble v)
+        (= conversion :matrix) (vec (.asDoubleMatrix v))
+        :else (vec (.asDoubleArray v))))
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_ARRAY_INT
+  [^org.rosuda.JRI.REXP v & [{conversion :conversion}]]
+  (cond (= conversion :raw) (.asDoubleArray v)
+        (= conversion :single) (.asDouble v)
+        (= conversion :matrix) (vec (.asDoubleMatrix v))
+        :else (vec (.asDoubleArray v))))
+
+(defmethod r->clj org.rosuda.JRI.REXP/XT_ARRAY_STR
+  [^org.rosuda.JRI.REXP v & [{conversion :conversion}]]
+  (cond (= conversion :raw) (.asStringArray v)
+        (= conversion :single) (.asString v)
+        :else (vec (.asStringArray v))))
+
+(defmethod r->clj org.rosuda.JRI.RBool
+  [^org.rosuda.JRI.RBool v & _]
+  (cond (.isNA v) nil
+        (.isTRUE v) true
+        (.isFalse v) false))
+
+(defmethod r->clj org.rosuda.JRI.RVector
+  [^org.rosuda.JRI.RVector v & [options]]
+  (cond (= (:conversion options) :data-frame) 
+        (apply mapv
+               (fn [& values]
+                 (zipmap (map keyword (.getNames v)) values))
+               (map #(r->clj % options) v))
+
+        (= (:conversion options) :no-recursion)
+        (zipmap (map keyword (.getNames v))
+                v)
+
+        :else
+        (zipmap (map keyword (.getNames v))
+                (map #(r->clj % options) v))))
+
+(defmethod r->clj org.rosuda.JRI.RList
+  [^org.rosuda.JRI.RList v & [options]]
+  (let [ks (.keys v)]
+  (zipmap (map keyword ks)
+          (map #(r->clj (.at v %) options) ks))))
+
+(defmethod r->clj org.rosuda.JRI.RFactor
+  [^org.rosuda.JRI.RFactor v & _]
+  (let [ids (mapv #(.at v %) (range (.size v)))]
+    {:levels (into #{} ids)
+     :ids ids}))
 
 (defn eval* [s & [options]]
   (let [v (.eval ^org.rosuda.JRI.Rengine (get-instance options) s)
         op (if (nil? options) *options* options)]
-    (convert v op)))
+    (if (get op :conversion true)
+      (r->clj v op)
+      v)))
 
 (defn eval-vec [xs]
   (assert (coll? xs))
@@ -121,7 +191,7 @@
       (let [exp (first remainings)
             op (second remainings)]
         (recur (rest remainings)
-               (if (string? exp)
+               (when (string? exp)
                  (if (map? op)
                    (eval* exp op)
                    (eval* exp))))))))
@@ -134,27 +204,62 @@
 
 (defn eval-source [^String filepath]
   (eval (format "source('%s')"
-                  (-> (java.io.File. filepath) .getAbsolutePath))))
+                (-> (java.io.File. filepath) .getAbsolutePath))))
 
-(defn boolean? [x] (or (true? x)(false? x)))
-;(defn int? [x] (or (instance? Long x)(instance? Integer x)))
+(defn clj->r [v]
+  (cond
+    (boolean? v)
+    (org.rosuda.JRI.REXP. org.rosuda.JRI.REXP/XT_BOOL v)
 
-(defn convert-to-R-values [value]
-  (cond ; String instances are not supported by JRI yet.
-   (boolean? value) (org.rosuda.JRI.REXP. org.rosuda.JRI.REXP/XT_BOOL value),
-   ;(int? value) (org.rosuda.JRI.REXP. org.rosuda.JRI.REXP/XT_INT value),
-   (number? value) (org.rosuda.JRI.REXP. org.rosuda.JRI.REXP/XT_DOUBLE (double value)),
-   ;(string? value) (org.rosuda.JRI.REXP. org.rosuda.JRI.REXP/XT_STR value),
-   (every? boolean? value) (boolean-array value)
-   ;(every? int? value) (int-array value)
-   (every? number? value) (double-array (vec (map double value)))
-   ;(every? string? value) (make-array String value)
-   ))
+    (int? v)
+    (org.rosuda.JRI.REXP. org.rosuda.JRI.REXP/XT_INT v)
+
+    (number? v)
+    (org.rosuda.JRI.REXP. org.rosuda.JRI.REXP/XT_DOUBLE (double v))
+
+    (string? v)
+    (org.rosuda.JRI.REXP. org.rosuda.JRI.REXP/XT_STR v)
+
+    (and (coll? v) (every? int? v))
+    (org.rosuda.JRI.REXP.
+      org.rosuda.JRI.REXP/XT_ARRAY_INT (int-array v))
+
+    (and (coll? v) (every? double? v))
+    (org.rosuda.JRI.REXP.
+      org.rosuda.JRI.REXP/XT_ARRAY_DOUBLE (double-array v))
+
+    (and (coll? v) (every? number? v))
+    (org.rosuda.JRI.REXP.
+      org.rosuda.JRI.REXP/XT_ARRAY_DOUBLE (double-array (map double v)))
+
+    (and (coll? v) (every? string? v))
+    (org.rosuda.JRI.REXP.
+      org.rosuda.JRI.REXP/XT_ARRAY_STR (into-array String v))
+
+    :else (throw
+            (ex-info
+              "Conversion to R type failed"
+              {:cause (str "Value is an invalid candidate for conversion.")
+               :value v}))))
 
 (defn assign [var-name value]
   (assert (string? var-name))
-  (let [v (convert-to-R-values value)]
+  (let [v (clj->r value)]
     (.assign ^org.rosuda.JRI.Rengine (get-instance)
              ^String var-name
+             v)))
+
+(defn assign-tibble 
+  "Assign relation, relv, to R/dplyr tibble."
+  [tibble-name relv]
+  (assert (string? tibble-name))
+  (assert (and (coll? relv) (every? map? relv)))
+  (eval ["require(dplyr)"
+         (format "%s <- tibble(.rows = %d)" tibble-name (count relv))])
+  (doseq [col (keys (first relv))
+          :let [v (clj->r (map #(get % col) relv))]]
+    (.assign ^org.rosuda.JRI.Rengine (get-instance)
+             ^String (str "tmp_col_" (name col))
              v)
-    v))
+    (eval [(format "%1$s$%2$s <- tmp_col_%2$s" tibble-name (name col))
+           (format "rm(tmp_col_%s)" (name col))])))

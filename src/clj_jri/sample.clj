@@ -4,7 +4,6 @@
 ;As long as supported by this library, JRI basically returns a vector so that you need to specify {:conversion :single} as the second argment to get a single number from the return value from R.
 
 ;When giving {:conversion false}, then R/eval returns the REXP object without any conversion. {:conversion :vec} and {:conversion raw} gives a Clojure vector of Double values and a Java Double array respectively.
-
 (println "# random numbers")
 (println (R/eval "rnorm(5)"))
 (println (R/eval "rnorm(5)" {:conversion false}))
@@ -42,16 +41,16 @@
 (println (R/eval "x"))
 (println (R/assign "x" [1 2 3]))
 (println (R/eval "x"))
+(println (R/eval "getwd()"))
 
 (println "# chart test (check /tmp/LineChart.jpg)")
 (println (R/eval [
             "data(cars)"
-            "jpeg(file=\"/tmp/LineChart.jpg\",width=800,height=600)"
-            "plot(cars, main = \"lowess(cars)\")"
+            "jpeg(file='/tmp/LineChart.jpg',width=800,height=600)"
+            "plot(cars, main = 'lowess(cars)')"
             "lines(lowess(cars), col = 2)"
             "lines(lowess(cars, f = 0.2), col = 3)"
-            "legend(5, 120, c(paste(\"f = \", c(\"2/3\", \".2\"))), lty = 1, col = 2:3)"
+            "legend(5, 120, c(paste('f = ', c('2/3', '.2'))), lty = 1, col = 2:3)"
             "dev.off()"]))
 
 (R/shutdown)
-
