@@ -1,0 +1,9 @@
+{:deps {org.clojure/clojure {:mvn/version "1.11.1"}
+        org.rosuda/jri {:local/root "./lib/JRI.jar"}
+        org.rosuda/r-engine {:local/root "./lib/REngine.jar"}}
+ :paths ["classes" "src" "resources"]
+ :aliases {:test {:extra-paths ["test"]
+                  :extra-deps  {lambdaisland/kaocha {:mvn/version "1.66.1034"}}
+                  :main-opts   ["-m" "kaocha.runner"]}
+           :uberjar {:extra-deps {uberdeps/uberdeps {:mvn/version "1.0.4"}}
+                     :main-opts  ["-m" "uberdeps.uberjar" "--target" "target/clj-jri-0.1.0.jar"]}}}
